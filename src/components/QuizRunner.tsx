@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Markdown from "./Markdown";
 import { getExamFormat } from "@/lib/examFormats";
-import type { Question, Quiz } from "@/lib/types";
+import type { Question, Quiz, TopicResult } from "@/lib/types";
 
 export type QuizMode = "tutor" | "exam";
 
@@ -75,7 +75,7 @@ export default function QuizRunner({
 }: {
   quiz: Quiz;
   mode: QuizMode;
-  onFinish: (score: number, total: number) => void;
+  onFinish: (score: number, total: number, topics: Record<string, TopicResult>) => void;
   onExit: () => void;
 }) {
   const format = getExamFormat(quiz.format);
@@ -216,7 +216,14 @@ export default function QuizRunner({
               <button
                 className="primary"
                 onClick={() => {
-                  onFinish(score, total);
+                  const topics: Record<string, TopicResult> = {};
+                  questions.forEach((x, i) => {
+                    const key = x.topic?.trim() || "General";
+                    const t = (topics[key] ??= { correct: 0, total: 0 });
+                    t.correct += points(x, answers[i]);
+                    t.total += maxPoints(x);
+                  });
+                  onFinish(score, total, topics);
                 }}
               >
                 Save result & close

@@ -1,7 +1,7 @@
 "use client";
 
 import { createStore, del, get, set, values } from "idb-keyval";
-import type { Deck } from "./types";
+import type { CaseReport, Deck } from "./types";
 
 /**
  * Decks live in the browser's IndexedDB, so the app needs no database or login.
@@ -24,6 +24,22 @@ export function saveDeck(deck: Deck): Promise<void> {
 
 export function deleteDeck(id: string): Promise<void> {
   return del(id, store);
+}
+
+const caseStore =
+  typeof window !== "undefined" ? createStore("medical-study-companion-cases", "cases") : undefined;
+
+export async function listCases(): Promise<CaseReport[]> {
+  const cases = (await values<CaseReport>(caseStore)) ?? [];
+  return cases.sort((a, b) => b.updatedAt - a.updatedAt);
+}
+
+export function saveCase(c: CaseReport): Promise<void> {
+  return set(c.id, c, caseStore);
+}
+
+export function deleteCase(id: string): Promise<void> {
+  return del(id, caseStore);
 }
 
 export function newId(): string {

@@ -50,10 +50,17 @@ export interface SaqQuestion {
 
 export type Question = SbaQuestion | EmqQuestion | MtfQuestion | SaqQuestion;
 
+export interface TopicResult {
+  correct: number;
+  total: number;
+}
+
 export interface QuizAttempt {
   finishedAt: number;
   score: number;
   total: number;
+  /** Points per question topic; missing on attempts saved before topic tracking existed. */
+  topics?: Record<string, TopicResult>;
 }
 
 export interface Quiz {
@@ -63,6 +70,7 @@ export interface Quiz {
   createdAt: number;
   questions: Question[];
   attempts: QuizAttempt[];
+  focusTopics?: string[];
 }
 
 export interface SrsState {
@@ -108,10 +116,49 @@ export type GenerateRequest =
       language: Language;
       count: number;
       format: ExamFormatId;
-    };
+      /** Topics the student is weak on — the quiz concentrates on these. */
+      focusTopics?: string[];
+    }
+  | { kind: "casereport"; language: Language; details: CaseDetails };
 
 export type GenerateResponse =
   | { kind: "notes"; markdown: string }
   | { kind: "mindmap"; markdown: string }
   | { kind: "flashcards"; cards: { front: string; back: string; tag: string }[] }
-  | { kind: "quiz"; questions: Question[] };
+  | { kind: "quiz"; questions: Question[] }
+  | { kind: "casereport"; result: CaseReportResult };
+
+/* ---- Case reports ---- */
+
+export interface CaseDetails {
+  workingTitle: string;
+  patient: string;
+  presentation: string;
+  history: string;
+  examination: string;
+  investigations: string;
+  diagnosis: string;
+  treatment: string;
+  outcome: string;
+  novelty: string;
+  patientPerspective: string;
+  targetJournal: string;
+  wordLimit: number;
+  consentObtained: boolean;
+}
+
+export interface CaseReportResult {
+  titleOptions: string[];
+  draft: string;
+  checklistGaps: string[];
+  pubmedQueries: string[];
+}
+
+export interface CaseReport {
+  id: string;
+  createdAt: number;
+  updatedAt: number;
+  details: CaseDetails;
+  language: Language;
+  result?: CaseReportResult;
+}
