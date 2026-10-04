@@ -2,11 +2,11 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { deleteDeck, listDecks, newId, saveDeck } from "@/lib/db";
+import { deleteDeck, listCases, listDecks, newId, saveCase, saveDeck } from "@/lib/db";
 import { LANGUAGE_LABELS } from "@/lib/examFormats";
 import { ACCEPTED_FILES, extractSlides } from "@/lib/extract";
 import { isDue } from "@/lib/srs";
-import type { Deck, Language } from "@/lib/types";
+import type { CaseReport, Deck, Language } from "@/lib/types";
 
 export default function LibraryPage() {
   const [decks, setDecks] = useState<Deck[] | null>(null);
@@ -53,8 +53,8 @@ export default function LibraryPage() {
   }
 
   async function exportBackup() {
-    const all = await listDecks();
-    const blob = new Blob([JSON.stringify({ version: 1, decks: all })], { type: "application/json" });
+    const [all, cases] = await Promise.all([listDecks(), listCases()]);
+    const blob = new Blob([JSON.stringify({ version: 1, decks: all, cases })], { type: "application/json" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
     a.download = `study-companion-backup-${new Date().toISOString().slice(0, 10)}.json`;
@@ -67,6 +67,7 @@ export default function LibraryPage() {
       const data = JSON.parse(await file.text());
       if (!Array.isArray(data.decks)) throw new Error("Not a Study Companion backup file.");
       for (const deck of data.decks as Deck[]) await saveDeck(deck);
+      for (const c of (data.cases ?? []) as CaseReport[]) await saveCase(c);
       refresh();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));

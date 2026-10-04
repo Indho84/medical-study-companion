@@ -1,7 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { NextResponse } from "next/server";
 import { EXAM_FORMATS, getExamFormat } from "@/lib/examFormats";
-import { SYSTEM_PROMPT, buildUserPrompt, schemaFor } from "@/lib/server/prompts";
+import { buildUserPrompt, schemaFor, systemFor } from "@/lib/server/prompts";
 import type { GenerateRequest, GenerateResponse, Question } from "@/lib/types";
 
 // Generating a full quiz from a long lecture can take a couple of minutes.
@@ -19,17 +19,31 @@ function bad(message: string, status = 400) {
 function validate(body: unknown): GenerateRequest | string {
   if (!body || typeof body !== "object") return "Invalid request body.";
   const b = body as Record<string, unknown>;
-  if (!["notes", "mindmap", "flashcards", "quiz"].includes(b.kind as string)) return "Unknown kind.";
+  if (!["notes", "mindmap", "flashcards", "quiz", "casereport"].includes(b.kind as string)) return "Unknown kind.";
+  if (b.language !== "en" && b.language !== "tr") return "Unknown language.";
+  if (b.kind === "casereport") {
+    const d = b.details as Record<string, unknown> | undefined;
+    if (!d || typeof d !== "object") return "Missing case details.";
+    const text = Object.values(d).filter((v) => typeof v === "string").join(" ");
+    if (text.trim().length < 100) return "Add more case details (at least the presentation, investigations and outcome).";
+    if (text.length > MAX_SLIDE_CHARS) return "Case details are too long.";
+    if (typeof d.wordLimit !== "number" || d.wordLimit < 300 || d.wordLimit > 5000) return "Word limit must be 300–5000.";
+    return b as unknown as GenerateRequest;
+  }
   if (typeof b.text !== "string" || b.text.trim().length < 50)
     return "Not enough slide text to work with. Is this a scanned/image-only file?";
   if (b.text.length > MAX_SLIDE_CHARS)
     return "This file is very large. Split it into smaller lectures and upload them separately.";
   if (typeof b.title !== "string") return "Missing title.";
-  if (b.language !== "en" && b.language !== "tr") return "Unknown language.";
   if (b.kind === "flashcards" || b.kind === "quiz") {
     if (typeof b.count !== "number" || b.count < 1 || b.count > 60) return "count must be 1–60.";
   }
   if (b.kind === "quiz" && !EXAM_FORMATS.some((f) => f.id === b.format)) return "Unknown exam format.";
+  if (
+    b.focusTopics !== undefined &&
+    (!Array.isArray(b.focusTopics) || b.focusTopics.length > 20 || !b.focusTopics.every((t) => typeof t === "string"))
+  )
+    return "focusTopics must be a list of up to 20 topics.";
   return b as unknown as GenerateRequest;
 }
 
@@ -50,10 +64,10 @@ export async function POST(request: Request) {
       fallbacks: "default",
       thinking: { type: "adaptive" },
       output_config: {
-        effort: req.kind === "quiz" ? "high" : "medium",
+        effort: req.kind === "quiz" || req.kind === "casereport" ? "high" : "medium",
         format: { type: "json_schema", schema: schemaFor(req) },
       },
-      system: SYSTEM_PROMPT,
+      system: systemFor(req),
       messages: [{ role: "user", content: buildUserPrompt(req) }],
     });
     const message = await stream.finalMessage();
@@ -79,6 +93,9 @@ export async function POST(request: Request) {
         break;
       case "flashcards":
         result = { kind: "flashcards", cards: data.cards };
+        break;
+      case "casereport":
+        result = { kind: "casereport", result: data };
         break;
       case "quiz": {
         const type = getExamFormat(req.format).kind;

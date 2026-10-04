@@ -1,5 +1,5 @@
 import { getExamFormat } from "../examFormats";
-import type { ExamFormatId, GenerateRequest, Language, QuestionKind } from "../types";
+import type { CaseDetails, ExamFormatId, GenerateRequest, Language, QuestionKind } from "../types";
 
 export const SYSTEM_PROMPT = `You are an experienced medical educator and exam item-writer helping a final-year medical student revise from their own lecture slides. The student is preparing for USMLE, PLAB, TUS and AMC as well as their faculty exams.
 
@@ -17,7 +17,48 @@ function slidesBlock(title: string, text: string): string {
   return `<slides title="${title.replace(/"/g, "'")}">\n${text}\n</slides>`;
 }
 
+const CASE_REPORT_SYSTEM_PROMPT = `You are an experienced clinical academic and journal editor helping a medical student write their first case reports for publication. You know the CARE guidelines (CAse REport guidelines, Gagnier et al. 2013) and what editors of case-report journals expect.
+
+Rules you never break:
+- Use only the clinical facts the student provides. Never invent findings, results, doses, dates or outcomes. Where something a reader would need is missing, insert a visible placeholder like [ADD: serum sodium on admission] and list it as a gap.
+- Never invent references, authors, DOIs or statistics. Wherever a claim needs a citation, insert a placeholder like [REF: incidence of X in adults] so the student can find and cite a real source.
+- Keep the patient de-identified: no names, initials, exact dates, hospital numbers or locations. Express time relative to presentation ("on day 3", "at 6-month follow-up"). If the student's input contains identifiers, leave them out of the draft and mention it in the gaps.
+- Write in clear, formal academic style suitable for journals such as BMJ Case Reports, Journal of Medical Case Reports or Cureus.`;
+
+export function systemFor(req: GenerateRequest): string {
+  return req.kind === "casereport" ? CASE_REPORT_SYSTEM_PROMPT : SYSTEM_PROMPT;
+}
+
+function caseReportPrompt(d: CaseDetails, lang: string): string {
+  const field = (label: string, value: string) => `<${label}>\n${value.trim() || "(not provided)"}\n</${label}>`;
+  return `Here are the details of my case:
+
+${field("working_title", d.workingTitle)}
+${field("patient", d.patient)}
+${field("presenting_complaint", d.presentation)}
+${field("history", d.history)}
+${field("examination", d.examination)}
+${field("investigations", d.investigations)}
+${field("diagnosis_and_differentials", d.diagnosis)}
+${field("treatment", d.treatment)}
+${field("outcome_and_follow_up", d.outcome)}
+${field("why_this_case_is_worth_reporting", d.novelty)}
+${field("patient_perspective", d.patientPerspective)}
+${field("target_journal", d.targetJournal)}
+Written informed consent for publication: ${d.consentObtained ? "obtained" : "NOT yet obtained"}
+
+Draft a case report following the CARE guidelines, about ${d.wordLimit} words for the main text (excluding abstract). ${lang}
+
+Return:
+- "titleOptions": 3 alternative titles. Each should contain the words "case report" and name the condition and the key point of interest.
+- "draft": the full manuscript in Markdown with these sections: Title, Keywords (3–6), Abstract (structured: Background, Case presentation, Conclusions — max 250 words), Introduction (why this case matters, with [REF] placeholders), Case presentation (history, examination, investigations, diagnosis, treatment, outcome), a Timeline table (relative time → event), Discussion (compare with the literature using [REF] placeholders; explain the clinical reasoning; state the strengths and limitations of the case), Conclusion, a bulleted "Learning points" section (3–5 points, as BMJ Case Reports requires), Patient perspective (only if provided, otherwise a placeholder), and an Informed consent statement. If a target journal is given, follow its known section conventions.
+- "checklistGaps": each CARE checklist item or piece of information that is missing or weak, as a short actionable to-do (e.g. "Add the treatment dose and duration"). Include consent if it is not yet obtained.
+- "pubmedQueries": 3–5 ready-to-paste PubMed search strings (using MeSH terms and Boolean operators) to find the literature for the Introduction and Discussion, including one to check whether similar cases have already been reported.`;
+}
+
 export function buildUserPrompt(req: GenerateRequest): string {
+  if (req.kind === "casereport") return caseReportPrompt(req.details, languageInstruction(req.language));
+
   const slides = slidesBlock(req.title, req.text);
   const lang = languageInstruction(req.language);
 
@@ -59,17 +100,26 @@ Rules:
 - "tag" is a short topic label (1–3 words) for the part of the lecture the card comes from.`;
 
     case "quiz":
-      return quizPrompt(req.format, req.count, slides, lang);
+      return quizPrompt(req.format, req.count, slides, lang, req.focusTopics);
   }
 }
 
-function quizPrompt(formatId: ExamFormatId, count: number, slides: string, lang: string): string {
+function quizPrompt(
+  formatId: ExamFormatId,
+  count: number,
+  slides: string,
+  lang: string,
+  focusTopics?: string[],
+): string {
   const format = getExamFormat(formatId);
   const unit = format.kind === "emq" ? "EMQ sets" : "questions";
+  const focus = focusTopics?.length
+    ? `\nThe student has been getting these topics wrong: ${focusTopics.map((t) => `"${t}"`).join(", ")}. Make about 80% of the ${unit} test these topics from new angles (different presentations, mechanisms, next steps) so the student cannot rely on remembering earlier questions, and the rest a mix of the lecture. Use the same topic labels for those ${unit}.\n`
+    : "";
   return `${slides}
 
 Write ${count} ${unit} in the "${format.label}" format, based on these slides. ${lang}
-
+${focus}
 Format guide:
 ${format.guidance}
 
@@ -144,8 +194,17 @@ const questionSchemas: Record<QuestionKind, Record<string, unknown>> = {
   }),
 };
 
+const caseReportSchema = obj({
+  titleOptions: { type: "array", items: str },
+  draft: str,
+  checklistGaps: { type: "array", items: str },
+  pubmedQueries: { type: "array", items: str },
+});
+
 export function schemaFor(req: GenerateRequest): Record<string, unknown> {
   switch (req.kind) {
+    case "casereport":
+      return caseReportSchema;
     case "notes":
     case "mindmap":
       return markdownSchema;

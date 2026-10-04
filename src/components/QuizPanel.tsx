@@ -7,6 +7,7 @@ import { generate } from "@/lib/api";
 import { newId } from "@/lib/db";
 import { EXAM_FORMATS, LANGUAGE_LABELS, getExamFormat } from "@/lib/examFormats";
 import type { Deck, ExamFormatId, Language, Quiz } from "@/lib/types";
+import { weakTopics } from "@/lib/weakTopics";
 
 export default function QuizPanel({
   deck,
@@ -24,8 +25,9 @@ export default function QuizPanel({
   const [active, setActive] = useState<Quiz | null>(null);
 
   const format = getExamFormat(formatId);
+  const weak = weakTopics(deck);
 
-  async function create() {
+  async function create(focusTopics?: string[]) {
     setLoading(true);
     setError(null);
     try {
@@ -36,6 +38,7 @@ export default function QuizPanel({
         language,
         count,
         format: formatId,
+        focusTopics,
       });
       if (!questions.length) throw new Error("No usable questions came back — please try again.");
       const quiz: Quiz = {
@@ -45,6 +48,7 @@ export default function QuizPanel({
         createdAt: Date.now(),
         questions,
         attempts: [],
+        ...(focusTopics?.length ? { focusTopics } : {}),
       };
       await update((d) => ({ ...d, quizzes: [quiz, ...d.quizzes] }));
       setActive(quiz);
@@ -62,11 +66,11 @@ export default function QuizPanel({
         quiz={active}
         mode={mode}
         onExit={() => setActive(null)}
-        onFinish={async (score, total) => {
+        onFinish={async (score, total, topics) => {
           await update((d) => ({
             ...d,
             quizzes: d.quizzes.map((q) =>
-              q.id === active.id ? { ...q, attempts: [...q.attempts, { finishedAt: Date.now(), score, total }] } : q,
+              q.id === active.id ? { ...q, attempts: [...q.attempts, { finishedAt: Date.now(), score, total, topics }] } : q,
             ),
           }));
           setActive(null);
@@ -128,13 +132,48 @@ export default function QuizPanel({
           <Generating what={`${format.short} quiz`} />
         ) : (
           <div>
-            <button className="primary" onClick={create}>
+            <button className="primary" onClick={() => create()}>
               Generate quiz
             </button>
           </div>
         )}
         {error && <div className="error">{error}</div>}
       </div>
+
+      {weak.length > 0 && (
+        <div className="card stack">
+          <div className="spread">
+            <div>
+              <strong>🎯 Your weak topics</strong>
+              <div className="muted small">From your quiz answers and flashcards you keep forgetting.</div>
+            </div>
+            <button
+              className="primary"
+              disabled={loading}
+              onClick={() => create(weak.slice(0, 6).map((w) => w.topic))}
+            >
+              Practice weak topics ({format.short})
+            </button>
+          </div>
+          <div className="stack" style={{ gap: 6 }}>
+            {weak.slice(0, 8).map((w) => {
+              const pct = w.total ? Math.round((w.correct / w.total) * 100) : null;
+              return (
+                <div key={w.topic} className="weak-row">
+                  <span>{w.topic}</span>
+                  <span className="meter" aria-hidden>
+                    <span style={{ width: `${pct ?? 0}%` }} />
+                  </span>
+                  <span className="small muted">
+                    {pct !== null ? `${pct}% (${w.correct}/${w.total})` : "—"}
+                    {w.lapses ? ` · ${w.lapses} forgotten card${w.lapses > 1 ? "s" : ""}` : ""}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {deck.quizzes.length > 0 && (
         <>
@@ -146,7 +185,7 @@ export default function QuizPanel({
               return (
                 <div key={quiz.id} className="card spread" style={{ padding: 14 }}>
                   <div>
-                    <strong>{f.label}</strong>{" "}
+                    <strong>{f.label}</strong> {quiz.focusTopics && <span className="pill accent">🎯 weak topics</span>}{" "}
                     <span className="muted small">
                       · {quiz.questions.length} {f.kind === "emq" ? "sets" : "questions"} ·{" "}
                       {LANGUAGE_LABELS[quiz.language]} · {new Date(quiz.createdAt).toLocaleDateString()}
