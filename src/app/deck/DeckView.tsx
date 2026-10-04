@@ -1,14 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import FlashcardsPanel from "@/components/FlashcardsPanel";
 import Generating from "@/components/Generating";
 import Markdown from "@/components/Markdown";
 import MindMap from "@/components/MindMap";
 import QuizPanel from "@/components/QuizPanel";
-import { generate } from "@/lib/api";
+import { isCancel, useAi } from "@/lib/ai";
 import { getDeck, saveDeck } from "@/lib/db";
 import { LANGUAGE_LABELS } from "@/lib/examFormats";
 import type { Deck, Language } from "@/lib/types";
@@ -23,8 +23,8 @@ const TABS: { id: Tab; label: string }[] = [
   { id: "slides", label: "📄 Slide text" },
 ];
 
-export default function DeckPage() {
-  const { id } = useParams<{ id: string }>();
+export default function DeckView() {
+  const id = useSearchParams().get("id") ?? "";
   const [deck, setDeck] = useState<Deck | null | undefined>(undefined);
   const deckRef = useRef<Deck | null>(null);
   const [tab, setTab] = useState<Tab>("notes");
@@ -159,6 +159,7 @@ function MarkdownTab({
   render: (markdown: string) => React.ReactNode;
   extraActions?: React.ReactNode;
 }) {
+  const { generate } = useAi();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const content = deck[kind];
@@ -171,7 +172,7 @@ function MarkdownTab({
       const { markdown } = await generate({ kind, title: deck.title, text: deck.text, language: deck.language });
       await update((d) => ({ ...d, [kind]: markdown }));
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      if (!isCancel(e)) setError(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
     }

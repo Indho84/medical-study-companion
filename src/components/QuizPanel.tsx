@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Generating from "./Generating";
 import QuizRunner, { type QuizMode } from "./QuizRunner";
-import { generate } from "@/lib/api";
+import { isCancel, useAi } from "@/lib/ai";
 import { newId } from "@/lib/db";
 import { EXAM_FORMATS, LANGUAGE_LABELS, getExamFormat } from "@/lib/examFormats";
 import type { Deck, ExamFormatId, Language, Quiz } from "@/lib/types";
@@ -16,6 +16,7 @@ export default function QuizPanel({
   deck: Deck;
   update: (fn: (d: Deck) => Deck) => Promise<void>;
 }) {
+  const { generate } = useAi();
   const [formatId, setFormatId] = useState<ExamFormatId>("usmle");
   const [language, setLanguage] = useState<Language>(deck.language);
   const [count, setCount] = useState(10);
@@ -53,7 +54,7 @@ export default function QuizPanel({
       await update((d) => ({ ...d, quizzes: [quiz, ...d.quizzes] }));
       setActive(quiz);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      if (!isCancel(e)) setError(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
     }

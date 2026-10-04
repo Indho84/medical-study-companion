@@ -181,6 +181,19 @@ label.field { display: flex; flex-direction: column; gap: 4px; font-size: 0.85re
 .meter > span { display: block; height: 100%; background: var(--warn); }
 @media (max-width: 600px) { .weak-row { grid-template-columns: 1fr 1fr; } .weak-row .meter { display: none; } }
 
+/* Free-mode dialog */
+.modal-backdrop {
+  position: fixed; inset: 0; background: rgb(0 0 0 / 45%); z-index: 50;
+  display: flex; align-items: flex-start; justify-content: center; padding: 24px 16px; overflow-y: auto;
+}
+.modal { width: 100%; max-width: 640px; }
+.step { display: flex; gap: 12px; align-items: flex-start; }
+.step-num {
+  flex: none; width: 28px; height: 28px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center;
+  background: var(--accent); color: #fff; font-weight: 700; font-size: 0.9rem;
+}
+.nav { align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+
 pre.slidetext { white-space: pre-wrap; font-size: 0.85rem; max-height: 70vh; overflow: auto; background: var(--surface); padding: 16px; border-radius: var(--radius); border: 1px solid var(--border); }
 
 @media (max-width: 600px) {

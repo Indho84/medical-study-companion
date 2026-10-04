@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Generating from "@/components/Generating";
 import Markdown from "@/components/Markdown";
-import { generate } from "@/lib/api";
+import { isCancel, useAi } from "@/lib/ai";
 import { deleteCase, listCases, newId, saveCase } from "@/lib/db";
 import { LANGUAGE_LABELS } from "@/lib/examFormats";
 import type { CaseDetails, CaseReport, Language } from "@/lib/types";
@@ -40,6 +40,7 @@ const FIELDS: { key: keyof CaseDetails; label: string; placeholder: string; rows
 ];
 
 export default function CaseReportPage() {
+  const { generate } = useAi();
   const [cases, setCases] = useState<CaseReport[]>([]);
   const [current, setCurrent] = useState<CaseReport>(() => blank());
   const [loading, setLoading] = useState(false);
@@ -79,7 +80,7 @@ export default function CaseReportPage() {
       setCurrent((c) => ({ ...c, updatedAt: Date.now(), result }));
       setEditing(false);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      if (!isCancel(e)) setError(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
     }

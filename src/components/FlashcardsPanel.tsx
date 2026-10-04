@@ -4,7 +4,7 @@ import { useState } from "react";
 import Generating from "./Generating";
 import Markdown from "./Markdown";
 import StudySession from "./StudySession";
-import { generate } from "@/lib/api";
+import { isCancel, useAi } from "@/lib/ai";
 import { newId } from "@/lib/db";
 import { isDue, newSrs } from "@/lib/srs";
 import type { Deck } from "@/lib/types";
@@ -16,6 +16,7 @@ export default function FlashcardsPanel({
   deck: Deck;
   update: (fn: (d: Deck) => Deck) => Promise<void>;
 }) {
+  const { generate } = useAi();
   const [count, setCount] = useState(30);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -41,7 +42,7 @@ export default function FlashcardsPanel({
         flashcards: [...d.flashcards, ...cards.map((c) => ({ ...c, id: newId(), srs: newSrs(now) }))],
       }));
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      if (!isCancel(e)) setError(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
     }
