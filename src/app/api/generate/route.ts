@@ -1,8 +1,9 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { NextResponse } from "next/server";
-import { EXAM_FORMATS, getExamFormat } from "@/lib/examFormats";
-import { buildUserPrompt, schemaFor, systemFor } from "@/lib/server/prompts";
-import type { GenerateRequest, GenerateResponse, Question } from "@/lib/types";
+import { EXAM_FORMATS } from "@/lib/examFormats";
+import { toResponse } from "@/lib/postprocess";
+import { buildUserPrompt, schemaFor, systemFor } from "@/lib/prompts";
+import type { GenerateRequest } from "@/lib/types";
 
 // Generating a full quiz from a long lecture can take a couple of minutes.
 export const maxDuration = 300;
@@ -47,6 +48,11 @@ function validate(body: unknown): GenerateRequest | string {
   return b as unknown as GenerateRequest;
 }
 
+/** Lets the browser check whether one-click (API) mode is available; otherwise it uses free mode. */
+export async function GET() {
+  return NextResponse.json({ configured: Boolean(process.env.ANTHROPIC_API_KEY) });
+}
+
 export async function POST(request: Request) {
   if (!process.env.ANTHROPIC_API_KEY) {
     return bad("ANTHROPIC_API_KEY is not set on the server. Add it to .env.local and restart.", 500);
@@ -83,29 +89,7 @@ export async function POST(request: Request) {
       .filter((b) => b.type === "text")
       .map((b) => b.text)
       .join("");
-    const data = JSON.parse(text);
-
-    let result: GenerateResponse;
-    switch (req.kind) {
-      case "notes":
-      case "mindmap":
-        result = { kind: req.kind, markdown: data.markdown };
-        break;
-      case "flashcards":
-        result = { kind: "flashcards", cards: data.cards };
-        break;
-      case "casereport":
-        result = { kind: "casereport", result: data };
-        break;
-      case "quiz": {
-        const type = getExamFormat(req.format).kind;
-        const questions = (data.questions as Omit<Question, "type">[]).map(
-          (q) => ({ ...q, type }) as Question,
-        );
-        result = { kind: "quiz", questions: questions.filter(isUsable) };
-        break;
-      }
-    }
+    const result = toResponse(req, JSON.parse(text));
     return NextResponse.json(result);
   } catch (error) {
     if (error instanceof Anthropic.AuthenticationError) {
@@ -120,21 +104,8 @@ export async function POST(request: Request) {
     if (error instanceof SyntaxError) {
       return bad("Claude returned malformed output. Please try again.", 502);
     }
+    if (error instanceof Error) return bad(error.message, 502);
     console.error(error);
     return bad("Unexpected server error.", 500);
-  }
-}
-
-/** Drop any question whose answer key points outside its options. */
-function isUsable(q: Question): boolean {
-  switch (q.type) {
-    case "sba":
-      return q.options.length >= 2 && q.answerIndex >= 0 && q.answerIndex < q.options.length;
-    case "emq":
-      return q.items.length > 0 && q.items.every((i) => i.answerIndex >= 0 && i.answerIndex < q.options.length);
-    case "mtf":
-      return q.statements.length > 0;
-    case "saq":
-      return q.markingPoints.length > 0;
   }
 }

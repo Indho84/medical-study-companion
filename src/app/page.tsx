@@ -180,7 +180,7 @@ export default function LibraryPage() {
             const due = deck.flashcards.filter((c) => isDue(c)).length;
             return (
               <div key={deck.id} className="card stack" style={{ gap: 8 }}>
-                <Link href={`/deck/${deck.id}`} style={{ fontWeight: 600, fontSize: "1.05rem" }}>
+                <Link href={`/deck?id=${deck.id}`} style={{ fontWeight: 600, fontSize: "1.05rem" }}>
                   {deck.title}
                 </Link>
                 <div className="muted small">
@@ -197,7 +197,7 @@ export default function LibraryPage() {
                   {deck.quizzes.length > 0 && <span className="pill accent">{deck.quizzes.length} quizzes</span>}
                 </div>
                 <div className="spread">
-                  <Link href={`/deck/${deck.id}`} className="btn primary">
+                  <Link href={`/deck?id=${deck.id}`} className="btn primary">
                     Open
                   </Link>
                   <button className="ghost danger small" onClick={() => remove(deck)}>

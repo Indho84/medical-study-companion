@@ -1,5 +1,5 @@
-import { getExamFormat } from "../examFormats";
-import type { CaseDetails, ExamFormatId, GenerateRequest, Language, QuestionKind } from "../types";
+import { getExamFormat } from "./examFormats";
+import type { CaseDetails, ExamFormatId, GenerateRequest, Language, QuestionKind } from "./types";
 
 export const SYSTEM_PROMPT = `You are an experienced medical educator and exam item-writer helping a final-year medical student revise from their own lecture slides. The student is preparing for USMLE, PLAB, TUS and AMC as well as their faculty exams.
 
@@ -215,4 +215,24 @@ export function schemaFor(req: GenerateRequest): Record<string, unknown> {
       return obj({ questions: { type: "array", items: questionSchemas[kind] } });
     }
   }
+}
+
+/**
+ * Free mode: one self-contained prompt the student pastes into claude.ai.
+ * The reply is pasted back and parsed, so it must be a single JSON object.
+ */
+export function buildCopyPrompt(req: GenerateRequest): string {
+  return `${systemFor(req)}
+
+=====
+
+${buildUserPrompt(req)}
+
+=====
+
+HOW TO REPLY (important — an app will read your answer automatically):
+- Reply with ONE JSON object and nothing else: no greeting, no explanation, no artifact/canvas/document.
+- Put it in a single \`\`\`json code block.
+- It must follow this JSON Schema exactly (same field names; every field is required):
+${JSON.stringify(schemaFor(req))}`;
 }
