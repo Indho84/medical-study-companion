@@ -88,7 +88,7 @@ button.primary:hover:not(:disabled) { filter: brightness(1.08); background: var(
 button.danger { color: var(--bad); }
 button.ghost { border-color: transparent; background: transparent; }
 
-select, input[type="number"], input[type="text"], textarea {
+select, input[type="number"], input[type="text"], input[type="password"], textarea {
   font: inherit; color: var(--text); background: var(--surface);
   border: 1px solid var(--border); border-radius: 10px; padding: 8px 10px;
 }
@@ -117,6 +117,7 @@ label.field { display: flex; flex-direction: column; gap: 4px; font-size: 0.85re
 .pill.good { background: var(--good-soft); color: var(--good); border-color: transparent; }
 .pill.bad { background: var(--bad-soft); color: var(--bad); border-color: transparent; }
 
+.notice-ok { background: var(--good-soft); color: var(--good); border-radius: 10px; padding: 10px 14px; }
 .error { background: var(--bad-soft); color: var(--bad); border-radius: 10px; padding: 10px 14px; }
 
 .spinner {
