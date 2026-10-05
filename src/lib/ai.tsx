@@ -1,17 +1,20 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { extractJson, toResponse } from "./postprocess";
 import { buildCopyPrompt } from "./prompts";
+import { DEFAULT_SETTINGS, loadSettings, saveSettings, type Settings } from "./settings";
 import type { GenerateRequest, GenerateResponse } from "./types";
 
 /**
- * Two ways to get content from Claude:
- * - "api":  the server has an ANTHROPIC_API_KEY, so one click generates everything.
- * - "free": no key (e.g. the free GitHub Pages site). The app builds a prompt, the
+ * Three ways to get content from Claude, picked automatically:
+ * - "key":  the student saved their own API key in Settings; the browser calls Claude directly.
+ * - "api":  the server has an ANTHROPIC_API_KEY (e.g. a Vercel deployment).
+ * - "free": no key anywhere (e.g. the GitHub Pages site). The app builds a prompt, the
  *           student pastes it into claude.ai, then pastes Claude's reply back.
  */
-export type AiMode = "api" | "free" | "checking";
+export type AiMode = "key" | "api" | "free" | "checking";
 
 type Generate = <K extends GenerateRequest["kind"]>(
   req: Extract<GenerateRequest, { kind: K }>,
@@ -34,38 +37,57 @@ interface Pending {
   reject: (e: Error) => void;
 }
 
-const AiContext = createContext<{ mode: AiMode; generate: Generate } | null>(null);
+interface AiContextValue {
+  mode: AiMode;
+  generate: Generate;
+  settings: Settings;
+  updateSettings: (s: Settings) => boolean;
+}
+
+const AiContext = createContext<AiContextValue | null>(null);
 
 // Checked once per page load: does the server have an API key?
-let modeCheck: Promise<"api" | "free"> | null = null;
-function detectMode(): Promise<"api" | "free"> {
-  if (STATIC_SITE) return Promise.resolve("free");
-  modeCheck ??= fetch(`${BASE_PATH}/api/generate`)
+let serverCheck: Promise<boolean> | null = null;
+function serverConfigured(): Promise<boolean> {
+  if (STATIC_SITE) return Promise.resolve(false);
+  serverCheck ??= fetch(`${BASE_PATH}/api/generate`)
     .then((r) => (r.ok ? r.json() : { configured: false }))
-    .then((d) => (d.configured ? "api" : "free") as "api" | "free")
-    .catch(() => "free" as const);
-  return modeCheck;
+    .then((d) => Boolean(d.configured))
+    .catch(() => false);
+  return serverCheck;
 }
 
 export function AiProvider({ children }: { children: React.ReactNode }) {
-  const [mode, setMode] = useState<AiMode>(STATIC_SITE ? "free" : "checking");
+  const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
+  const [server, setServer] = useState<boolean | null>(STATIC_SITE ? false : null);
   const [pending, setPending] = useState<Pending | null>(null);
 
   useEffect(() => {
-    detectMode().then(setMode);
+    setSettings(loadSettings());
+    serverConfigured().then(setServer);
+  }, []);
+
+  const mode: AiMode = settings.apiKey ? "key" : server === null ? "checking" : server ? "api" : "free";
+
+  const updateSettings = useCallback((s: Settings) => {
+    setSettings(s);
+    return saveSettings(s);
   }, []);
 
   const generate = useCallback(
     (async (req: GenerateRequest) => {
+      // Read settings fresh so a key saved on another tab/page is used straight away.
+      const current = loadSettings();
+      if (current.apiKey) return callClaudeFromBrowser(req, current);
       // A click right after page load must wait for the check, not fall back to free mode.
-      if ((await detectMode()) === "api") return callApi(req);
+      if (await serverConfigured()) return callServer(req);
       return new Promise<GenerateResponse>((resolve, reject) => setPending({ req, resolve, reject }));
     }) as Generate,
     [],
   );
 
   return (
-    <AiContext.Provider value={{ mode, generate }}>
+    <AiContext.Provider value={{ mode, generate, settings, updateSettings }}>
       {children}
       {pending && (
         <FreeModeDialog
@@ -90,7 +112,7 @@ export function useAi() {
   return ctx;
 }
 
-async function callApi(req: GenerateRequest): Promise<GenerateResponse> {
+async function callServer(req: GenerateRequest): Promise<GenerateResponse> {
   const res = await fetch(`${BASE_PATH}/api/generate`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -99,6 +121,20 @@ async function callApi(req: GenerateRequest): Promise<GenerateResponse> {
   const data = await res.json().catch(() => ({ error: `Server error (${res.status})` }));
   if (!res.ok) throw new Error(data.error ?? `Server error (${res.status})`);
   return data;
+}
+
+/** One-click mode on a static site: the student's own key, used only from their browser. */
+async function callClaudeFromBrowser(req: GenerateRequest, s: Settings): Promise<GenerateResponse> {
+  const [{ default: Anthropic }, { runGeneration, describeApiError }] = await Promise.all([
+    import("@anthropic-ai/sdk"),
+    import("./claudeRequest"),
+  ]);
+  const client = new Anthropic({ apiKey: s.apiKey, dangerouslyAllowBrowser: true });
+  try {
+    return await runGeneration(client, req, s.model);
+  } catch (e) {
+    throw new Error(describeApiError(e));
+  }
 }
 
 const WHAT: Record<GenerateRequest["kind"], string> = {
@@ -157,6 +193,11 @@ function FreeModeDialog({
           <button className="ghost" onClick={onCancel} aria-label="Close">
             ✕
           </button>
+        </div>
+
+        <div className="small muted">
+          Tired of copy-pasting? <Link href="/settings" onClick={onCancel}>Add your API key in Settings</Link> for
+          one-click generation.
         </div>
 
         <div className="step">

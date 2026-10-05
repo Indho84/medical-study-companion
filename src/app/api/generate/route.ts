@@ -1,14 +1,14 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { NextResponse } from "next/server";
 import { EXAM_FORMATS } from "@/lib/examFormats";
-import { toResponse } from "@/lib/postprocess";
-import { buildUserPrompt, schemaFor, systemFor } from "@/lib/prompts";
+import { describeApiError, runGeneration } from "@/lib/claudeRequest";
+import type { ModelId } from "@/lib/models";
 import type { GenerateRequest } from "@/lib/types";
 
 // Generating a full quiz from a long lecture can take a couple of minutes.
 export const maxDuration = 300;
 
-const MODEL = "claude-opus-5-5";
+const MODEL: ModelId = "claude-opus-5-5";
 const MAX_SLIDE_CHARS = 400_000; // ~100k tokens — far more than any single lecture
 
 const client = new Anthropic();
@@ -63,49 +63,11 @@ export async function POST(request: Request) {
   const req = parsed;
 
   try {
-    const stream = client.beta.messages.stream({
-      model: MODEL,
-      max_tokens: 64000,
-      betas: ["server-side-fallback-2026-07-01"],
-      fallbacks: "default",
-      thinking: { type: "adaptive" },
-      output_config: {
-        effort: req.kind === "quiz" || req.kind === "casereport" ? "high" : "medium",
-        format: { type: "json_schema", schema: schemaFor(req) },
-      },
-      system: systemFor(req),
-      messages: [{ role: "user", content: buildUserPrompt(req) }],
-    });
-    const message = await stream.finalMessage();
-
-    if (message.stop_reason === "refusal") {
-      return bad("Claude declined to generate this content. Try a different section of the slides.", 422);
-    }
-    if (message.stop_reason === "max_tokens") {
-      return bad("The response was too long and got cut off. Try a smaller number of items.", 422);
-    }
-
-    const text = message.content
-      .filter((b) => b.type === "text")
-      .map((b) => b.text)
-      .join("");
-    const result = toResponse(req, JSON.parse(text));
-    return NextResponse.json(result);
+    return NextResponse.json(await runGeneration(client, req, MODEL));
   } catch (error) {
-    if (error instanceof Anthropic.AuthenticationError) {
-      return bad("The Anthropic API key was rejected. Check ANTHROPIC_API_KEY.", 500);
-    }
-    if (error instanceof Anthropic.RateLimitError) {
-      return bad("Rate limited by the Anthropic API — wait a minute and try again.", 429);
-    }
-    if (error instanceof Anthropic.APIError) {
-      return bad(`Anthropic API error (${error.status}): ${error.message}`, 502);
-    }
-    if (error instanceof SyntaxError) {
-      return bad("Claude returned malformed output. Please try again.", 502);
-    }
-    if (error instanceof Error) return bad(error.message, 502);
-    console.error(error);
-    return bad("Unexpected server error.", 500);
+    const status =
+      error instanceof Anthropic.RateLimitError ? 429 : error instanceof Anthropic.APIError ? 502 : 422;
+    if (!(error instanceof Error)) console.error(error);
+    return bad(describeApiError(error), status);
   }
 }
